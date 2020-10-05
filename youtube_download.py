@@ -3,6 +3,15 @@ from pytube import Playlist
 import sys
 import re
 import configparser
+import os
+from safe_name import *
+
+
+def str_to_bool(string):
+    if string == "True":
+        return True
+    else:
+        return False
 
 
 def print_list(_list):
@@ -13,13 +22,16 @@ def print_list(_list):
 
 def download_video(
                     youtube_video_urls,
-                    download_dir,
+                    download_path,
                     url_regex,
-                    audio_flag = True):
+                    audio_flag = True,
+                    playlist_flag = False):
 
     if youtube_video_urls is None:
         sys.exit('ERROR: No youtube_video_urls')
 
+    if str(type(youtube_video_urls)) == "<class 'str'>":
+        youtube_video_urls = [youtube_video_urls]
     for youtube_video_url in youtube_video_urls:
         if not (re.match(url_regex, youtube_video_url) is not None):
             raise ValueError("URL is not valid: " + youtube_video_url)
@@ -28,50 +40,29 @@ def download_video(
         print ('*******\n' + youtube_video_url)
         
         try:
-            yt_obj = YouTube(str(youtube_video_url))
-            filters = yt_obj.streams.filter(progressive=True, file_extension='mp4')
-            if audio_flag:
-                filters = yt_obj.streams.get_audio_only().download(output_path = download_dir)
-                
+            if playlist_flag:
+                playlist = Playlist(str(youtube_playlist_url))
             else:
-                filters.get_highest_resolution().download(output_path = download_dir)
-            print(f'{yt_obj.title} Downloaded Successfully')
+                playlist = YouTube(str(youtube_video_url))
+            for yt_obj in playlist:
+                filters = yt_obj.streams.filter(progressive=True, 
+                                                file_extension='mp4')
+                filename = clean_filename(yt_obj.title)
+                fullfilename = os.path.join(download_path, 
+                                            filename)
+                if audio_flag:
+                    print('Save: ' + filename)
+                    filters = yt_obj.streams.get_audio_only().download(filename = filename,
+                                                                       output_path = download_path)
+                    os.system('ffmpeg -i {} -acodec pcm_s16le -ar 16000 {}.wav'.format(fullfilename+'.mp4',
+                                                                                       fullfilename))
+                    os.remove(fullfilename + '.mp4')
+                else:
+                    filters.get_highest_resolution().download(output_path = download_path)
+                print(f'{yt_obj.title} Downloaded Successfully')
 
         except Exception as e:
-            print(e)
-
-
-def download_playlist(
-                        youtube_playlist_url,
-                        download_dir,
-                        url_regex,
-                        youtube_steam = '140',
-                        audio_flag = True):
-
-    if youtube_playlist_url is None:
-        sys.exit('ERROR: No youtube_playlist_url.')
-        
-    if not (re.match(url_regex, youtube_playlist_url) is not None):
-            raise ValueError("URL is not valid: " + youtube_playlist_url)
-            return
-
-    try:
-        playlist = Playlist(youtube_playlist_url)
-        playlist._video_regex = re.compile(r"\"url\":\"(/watch\?v=[\w-]*)")
-        print(f'Number of videos: {len(playlist.video_urls)}')
-        
-        for yt_obj in playlist.videos:
-            filters = yt_obj.streams.filter(progressive=True, file_extension='mp4')
-            if audio_flag:
-                filters = yt_obj.streams.get_audio_only().download(output_path = download_dir)
-            else:
-                filters.get_highest_resolution().download(output_path = download_dir)
-            print(f'{yt_obj.title} Downloaded Successfully')
-            
-        # playlist.download_all(download_dir=download_dir)
-     
-    except Exception as e:
-        print(e)
+            print('Exception: ' + str(e))
 
 
 if __name__ == "__main__":
@@ -86,38 +77,43 @@ if __name__ == "__main__":
     
     config = configparser.ConfigParser()
     config.read('config.ini')
-    download_dir = config['DEFAULT'].get('download_dir')
-    audio_flag = config['DEFAULT'].get('audio_flag')
+    download_path = config['DEFAULT'].get('download_path')
+    audio_flag = str_to_bool(config['DEFAULT'].get('audio_flag'))
     youtube_video_urls_string = config['youtube_urls'].get('youtube_video_urls').splitlines()
     youtube_playlist_url_string = config['playlist_urls'].get('youtube_playlist_url').splitlines()
     
     
-    if download_dir is None:
-        sys.exit('download_dir is None')
-    else:
-        print('Download Dir is: ' + download_dir)
+    print('Download Path is: ' + download_path)
+    
     if audio_flag:
         print('Download As Audio\n')
     else:
         print('Download Videos')
     
     
-    if len(youtube_video_urls_string)>1:
+    if len(youtube_video_urls_string) > 1:
         youtube_video_urls = youtube_video_urls_string[1:]
         print ('~~~~~~~~~~~~~~~~~~')
         print('Download Youtube Videos \n')
         print_list(youtube_video_urls)
-        download_video(youtube_video_urls, download_dir, url_regex)
+        download_video(youtube_video_urls, 
+                       download_path, 
+                       url_regex, 
+                       audio_flag)
         print('All YouTube downloaded successfully. \n')
     
     
-    if len(youtube_playlist_url_string) > 2:
+    if len(youtube_playlist_url_string) > 1:
         youtube_playlist_url = youtube_playlist_url_string[1:]
         print ('~~~~~~~~~~~~~~~~~~')
         print('Download Youtube Playlist')
         print_list(youtube_playlist_url)
-        for i in range (len(youtube_playlist_url)): 
-            download_playlist(youtube_playlist_url[i], download_dir, url_regex)
-            print('YouTube Playlist downloaded successfully. \n')
+        for i in range(len(youtube_playlist_url)):
+            download_video(youtube_playlist_url[i], 
+                              download_path, 
+                              url_regex, 
+                              audio_flag,
+                              playlist_flag = True)
+        print('YouTube Playlist downloaded successfully. \n')
 
     x=2
